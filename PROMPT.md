@@ -40,3 +40,9 @@ references:
 - pydantic ai weather agent demo https://ai.pydantic.dev/examples/weather-agent/#example-code
 - subd example code for multi-ai provider support /workspace/subd/
 - openai api docs https://developers.openai.com/api/reference/resources/responses/methods/create
+
+...
+
+two constraints:
+- i specifically don't plan to use logfire because it requires paid/registration and i won't trust a hosted solution with my data
+- i also don't want to rely on chat-front to do any otel logging (it is just one of many possible clients, which could include alternatives as rudimentary as cURL). i want the otel data to be logged by chat-back (for inference) and mcp-gw (for tool calls)

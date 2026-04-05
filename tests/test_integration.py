@@ -269,11 +269,28 @@ def test_mcpgw_list_tools():
     assert "get_weather" in names
 
 
-def test_mcpgw_call_get_lat_lng():
+def test_mcpgw_no_auth_rejected():
+    """POST /tools/call without token → 401."""
     code, body, _ = req("POST", f"{MCPGW_URL}/tools/call", json_body={
         "name": "get_lat_lng",
         "arguments": {"location_description": "London, UK"},
     })
+    assert code == 401, f"Expected 401, got {code}: {body}"
+
+
+def test_mcpgw_mcp_no_auth():
+    """POST /mcp without token → 401."""
+    code, body, _ = req("POST", f"{MCPGW_URL}/mcp",
+        json_body={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+    )
+    assert code == 401, f"Expected 401, got {code}: {body}"
+
+
+def test_mcpgw_call_get_lat_lng():
+    code, body, _ = req("POST", f"{MCPGW_URL}/tools/call", json_body={
+        "name": "get_lat_lng",
+        "arguments": {"location_description": "London, UK"},
+    }, headers={"Authorization": f"Bearer {state['access_token']}"})
     assert code == 200
     result = json.loads(body)["result"]
     assert "lat" in result and "lng" in result
@@ -283,7 +300,7 @@ def test_mcpgw_call_get_weather():
     code, body, _ = req("POST", f"{MCPGW_URL}/tools/call", json_body={
         "name": "get_weather",
         "arguments": {"lat": 51.5, "lng": -0.12},
-    })
+    }, headers={"Authorization": f"Bearer {state['access_token']}"})
     assert code == 200
     result = json.loads(body)["result"]
     assert "temperature" in result and "description" in result
@@ -310,7 +327,10 @@ def test_mcpgw_mcp_initialize():
                 "clientInfo": {"name": "integration-test", "version": "0.1.0"},
             },
         },
-        headers={"Accept": "application/json, text/event-stream"},
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": f"Bearer {state['access_token']}",
+        },
     )
     assert code == 200, f"Expected 200, got {code}: {body}"
     data = _parse_sse_json(body)
@@ -319,6 +339,8 @@ def test_mcpgw_mcp_initialize():
 
 def test_mcpgw_mcp_tools_list():
     """List tools via native MCP Streamable HTTP."""
+    auth_hdr = {"Authorization": f"Bearer {state['access_token']}"}
+
     # First initialize to get a session
     code, body, hdrs = req("POST", f"{MCPGW_URL}/mcp",
         json_body={
@@ -331,7 +353,7 @@ def test_mcpgw_mcp_tools_list():
                 "clientInfo": {"name": "integration-test", "version": "0.1.0"},
             },
         },
-        headers={"Accept": "application/json, text/event-stream"},
+        headers={"Accept": "application/json, text/event-stream", **auth_hdr},
     )
     assert code == 200, f"Init failed: {code}: {body}"
     session_id = hdrs.get("Mcp-Session-Id", hdrs.get("mcp-session-id", ""))
@@ -340,7 +362,7 @@ def test_mcpgw_mcp_tools_list():
     # Send initialized notification
     req("POST", f"{MCPGW_URL}/mcp",
         json_body={"jsonrpc": "2.0", "method": "notifications/initialized"},
-        headers={"Mcp-Session-Id": session_id},
+        headers={"Mcp-Session-Id": session_id, **auth_hdr},
     )
 
     # List tools
@@ -349,6 +371,7 @@ def test_mcpgw_mcp_tools_list():
         headers={
             "Accept": "application/json, text/event-stream",
             "Mcp-Session-Id": session_id,
+            **auth_hdr,
         },
     )
     assert code2 == 200, f"tools/list failed: {code2}: {body2}"
@@ -423,6 +446,8 @@ def main():
     print("═══ mcp-gw integration tests ═══")
     test("health check", test_mcpgw_health)
     test("list tools (REST)", test_mcpgw_list_tools)
+    test("reject unauthenticated tool call", test_mcpgw_no_auth_rejected)
+    test("reject unauthenticated MCP request", test_mcpgw_mcp_no_auth)
     test("call get_lat_lng (REST)", test_mcpgw_call_get_lat_lng)
     test("call get_weather (REST)", test_mcpgw_call_get_weather)
     test("MCP initialize (Streamable HTTP)", test_mcpgw_mcp_initialize)

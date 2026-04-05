@@ -3,7 +3,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from mcp_gw.app import app
+from mcp_gw.app import app, _inner_app
 from mcp_gw.tools import call_get_lat_lng, call_get_weather, execute_tool
 
 
@@ -38,7 +38,15 @@ def test_execute_unknown_tool():
 
 @pytest.fixture
 def client():
+    """Client with auth middleware (tests auth enforcement)."""
     transport = ASGITransport(app=app)
+    return AsyncClient(transport=transport, base_url="http://test")
+
+
+@pytest.fixture
+def noauth_client():
+    """Client hitting the inner Starlette app directly (bypasses auth)."""
+    transport = ASGITransport(app=_inner_app)
     return AsyncClient(transport=transport, base_url="http://test")
 
 
@@ -51,6 +59,7 @@ async def test_health(client):
 
 @pytest.mark.anyio
 async def test_rest_list_tools(client):
+    """GET /tools is public (no auth required)."""
     r = await client.get("/tools")
     assert r.status_code == 200
     tools = r.json()["tools"]
@@ -60,8 +69,19 @@ async def test_rest_list_tools(client):
 
 
 @pytest.mark.anyio
-async def test_rest_call_tool(client):
+async def test_rest_call_tool_no_auth(client):
+    """POST /tools/call without token → 401."""
     r = await client.post("/tools/call", json={
+        "name": "get_lat_lng",
+        "arguments": {"location_description": "Paris, France"},
+    })
+    assert r.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_rest_call_tool_bypassed(noauth_client):
+    """Direct call (no middleware) still works for tool logic."""
+    r = await noauth_client.post("/tools/call", json={
         "name": "get_lat_lng",
         "arguments": {"location_description": "Paris, France"},
     })
@@ -71,18 +91,27 @@ async def test_rest_call_tool(client):
 
 
 @pytest.mark.anyio
-async def test_rest_call_unknown_tool(client):
-    r = await client.post("/tools/call", json={
+async def test_rest_call_unknown_tool(noauth_client):
+    r = await noauth_client.post("/tools/call", json={
         "name": "not_real",
         "arguments": {},
     })
     assert r.status_code == 400
 
 
-# ── Native MCP transport tests ──────────────────────────────────────
+@pytest.mark.anyio
+async def test_mcp_no_auth(client):
+    """POST /mcp without token → 401."""
+    r = await client.post("/mcp", json={
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+    })
+    assert r.status_code == 401
+
+
+# ── Starlette app structure ──────────────────────────────────────────
 
 def test_mcp_app_has_mcp_route():
-    """Verify the FastMCP app has /mcp route."""
-    from mcp_gw.app import app
-    route_paths = [r.path for r in app.routes if hasattr(r, "path")]
+    """Verify the inner Starlette app has /mcp route."""
+    from mcp_gw.app import _inner_app
+    route_paths = [r.path for r in _inner_app.routes if hasattr(r, "path")]
     assert "/mcp" in route_paths

@@ -84,7 +84,11 @@ async def chat(req: ChatRequest):
     model = OpenAIChatModel(model_name, provider=provider)
 
     # Native MCP toolset — connects to mcp-gw via Streamable HTTP
-    mcp_toolset = MCPServerStreamableHTTP(f"{settings.mcp_gw_url}/mcp")
+    # Pass the user's OAuth token so mcp-gw can authenticate + attribute tool calls
+    mcp_toolset = MCPServerStreamableHTTP(
+        f"{settings.mcp_gw_url}/mcp",
+        headers={"Authorization": f"Bearer {req.access_token}"} if req.access_token else None,
+    )
 
     result = await agent.run(req.message, deps=deps, model=model, toolsets=[mcp_toolset])
     return ChatResponse(reply=result.output)

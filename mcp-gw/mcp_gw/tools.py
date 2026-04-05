@@ -2,7 +2,8 @@
 
 These return deterministic fake data so the lab works without external APIs.
 Tools are registered with both FastMCP (native MCP transport) and a plain
-dispatch dict (REST convenience endpoints).
+dispatch dict (REST convenience endpoints).  Every tool execution is traced
+via OpenTelemetry with user attribution from the JWT.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+
+from opentelemetry import trace
 
 from mcp.server.fastmcp import FastMCP
 
@@ -66,14 +69,14 @@ TOOL_DEFINITIONS = [
 @mcp_server.tool()
 def get_lat_lng(location_description: str) -> str:
     """Get the latitude and longitude of a location."""
-    result = call_get_lat_lng({"location_description": location_description})
+    result = execute_tool("get_lat_lng", {"location_description": location_description})
     return json.dumps(result)
 
 
 @mcp_server.tool()
 def get_weather(lat: float, lng: float) -> str:
     """Get the current weather at a location given latitude and longitude."""
-    result = call_get_weather({"lat": lat, "lng": lng})
+    result = execute_tool("get_weather", {"lat": lat, "lng": lng})
     return json.dumps(result)
 
 
@@ -111,4 +114,27 @@ def execute_tool(name: str, arguments: dict) -> dict:
     handler = _TOOL_HANDLERS.get(name)
     if handler is None:
         raise ValueError(f"Unknown tool: {name}")
-    return handler(arguments)
+
+    from mcp_gw.auth import current_user
+    from mcp_gw.tracing import get_tracer
+
+    tracer = get_tracer()
+    claims = current_user.get()
+
+    with tracer.start_as_current_span(
+        f"execute_tool {name}",
+        kind=trace.SpanKind.SERVER,
+        attributes={
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": name,
+        },
+    ) as span:
+        span.set_attribute("gen_ai.tool.call.arguments", json.dumps(arguments))
+        if claims:
+            span.set_attribute("enduser.id", claims.get("sub", ""))
+            span.set_attribute("enduser.name", claims.get("preferred_username", ""))
+
+        result = handler(arguments)
+
+        span.set_attribute("gen_ai.tool.call.result", json.dumps(result))
+        return result
