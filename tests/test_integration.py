@@ -289,33 +289,74 @@ def test_mcpgw_call_get_weather():
     assert "temperature" in result and "description" in result
 
 
+def _parse_sse_json(body):
+    """Extract JSON from an SSE event stream body."""
+    for line in body.splitlines():
+        if line.startswith("data: "):
+            return json.loads(line[6:])
+    raise ValueError(f"No data line in SSE response: {body!r}")
+
+
 def test_mcpgw_mcp_initialize():
-    code, body, _ = req("POST", f"{MCPGW_URL}/mcp", json_body={
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-    })
-    assert code == 200
-    data = json.loads(body)
-    assert data["result"]["serverInfo"]["name"] == "mcp-gw"
-
-
-def test_mcpgw_mcp_tools_call():
-    code, body, _ = req("POST", f"{MCPGW_URL}/mcp", json_body={
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {
-            "name": "get_lat_lng",
-            "arguments": {"location_description": "Tokyo, Japan"},
+    """Native MCP Streamable HTTP endpoint should accept POST at /mcp."""
+    code, body, hdrs = req("POST", f"{MCPGW_URL}/mcp",
+        json_body={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "integration-test", "version": "0.1.0"},
+            },
         },
-    })
-    assert code == 200
-    data = json.loads(body)
-    assert data["error"] is None
-    content = data["result"]["content"]
-    assert len(content) == 1
-    assert content[0]["type"] == "text"
+        headers={"Accept": "application/json, text/event-stream"},
+    )
+    assert code == 200, f"Expected 200, got {code}: {body}"
+    data = _parse_sse_json(body)
+    assert data.get("result", {}).get("serverInfo", {}).get("name") == "mcp-gw"
+
+
+def test_mcpgw_mcp_tools_list():
+    """List tools via native MCP Streamable HTTP."""
+    # First initialize to get a session
+    code, body, hdrs = req("POST", f"{MCPGW_URL}/mcp",
+        json_body={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "integration-test", "version": "0.1.0"},
+            },
+        },
+        headers={"Accept": "application/json, text/event-stream"},
+    )
+    assert code == 200, f"Init failed: {code}: {body}"
+    session_id = hdrs.get("Mcp-Session-Id", hdrs.get("mcp-session-id", ""))
+    assert session_id, f"No session ID in response headers: {hdrs}"
+
+    # Send initialized notification
+    req("POST", f"{MCPGW_URL}/mcp",
+        json_body={"jsonrpc": "2.0", "method": "notifications/initialized"},
+        headers={"Mcp-Session-Id": session_id},
+    )
+
+    # List tools
+    code2, body2, _ = req("POST", f"{MCPGW_URL}/mcp",
+        json_body={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Mcp-Session-Id": session_id,
+        },
+    )
+    assert code2 == 200, f"tools/list failed: {code2}: {body2}"
+    data = _parse_sse_json(body2)
+    tools = data.get("result", {}).get("tools", [])
+    names = {t["name"] for t in tools}
+    assert "get_lat_lng" in names
+    assert "get_weather" in names
 
 
 # ─── 4. chat-front tests ────────────────────────────────────────────
@@ -384,8 +425,8 @@ def main():
     test("list tools (REST)", test_mcpgw_list_tools)
     test("call get_lat_lng (REST)", test_mcpgw_call_get_lat_lng)
     test("call get_weather (REST)", test_mcpgw_call_get_weather)
-    test("MCP initialize", test_mcpgw_mcp_initialize)
-    test("MCP tools/call", test_mcpgw_mcp_tools_call)
+    test("MCP initialize (Streamable HTTP)", test_mcpgw_mcp_initialize)
+    test("MCP tools/list (Streamable HTTP)", test_mcpgw_mcp_tools_list)
 
     print()
     print("═══ chat-front integration tests ═══")

@@ -79,55 +79,10 @@ async def test_rest_call_unknown_tool(client):
     assert r.status_code == 400
 
 
-# ── MCP JSON-RPC tests ──────────────────────────────────────────────
+# ── Native MCP transport tests ──────────────────────────────────────
 
-def _rpc(method, params=None, id=1):
-    return {"jsonrpc": "2.0", "id": id, "method": method, "params": params or {}}
-
-
-@pytest.mark.anyio
-async def test_mcp_initialize(client):
-    r = await client.post("/mcp", json=_rpc("initialize"))
-    assert r.status_code == 200
-    body = r.json()
-    assert body["result"]["protocolVersion"] == "2024-11-05"
-    assert body["result"]["serverInfo"]["name"] == "mcp-gw"
-
-
-@pytest.mark.anyio
-async def test_mcp_tools_list(client):
-    r = await client.post("/mcp", json=_rpc("tools/list"))
-    assert r.status_code == 200
-    tools = r.json()["result"]["tools"]
-    assert len(tools) == 2
-
-
-@pytest.mark.anyio
-async def test_mcp_tools_call(client):
-    r = await client.post("/mcp", json=_rpc("tools/call", {
-        "name": "get_weather",
-        "arguments": {"lat": 48.8, "lng": 2.35},
-    }))
-    assert r.status_code == 200
-    body = r.json()
-    assert body["error"] is None
-    content = body["result"]["content"]
-    assert len(content) == 1
-    assert content[0]["type"] == "text"
-
-
-@pytest.mark.anyio
-async def test_mcp_unknown_method(client):
-    r = await client.post("/mcp", json=_rpc("bogus/method"))
-    assert r.status_code == 200
-    body = r.json()
-    assert body["error"] is not None
-    assert body["error"]["code"] == -32602
-
-
-@pytest.mark.anyio
-async def test_mcp_tools_call_missing_name(client):
-    r = await client.post("/mcp", json=_rpc("tools/call", {"arguments": {}}))
-    assert r.status_code == 200
-    body = r.json()
-    assert body["error"] is not None
+def test_mcp_app_has_mcp_route():
+    """Verify the FastMCP app has /mcp route."""
+    from mcp_gw.app import app
+    route_paths = [r.path for r in app.routes if hasattr(r, "path")]
+    assert "/mcp" in route_paths

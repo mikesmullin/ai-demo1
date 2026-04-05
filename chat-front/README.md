@@ -17,10 +17,10 @@ User ──POST /chat──▶ chat-front (Pydantic AI agent)
                         │
                         ├──▶ chat-back /v1/chat/completions (LLM inference)
                         │
-                        └──▶ mcp-gw /tools/call (tool execution)
+                        └──▶ mcp-gw /mcp (MCP Streamable HTTP)
 ```
 
-The agent is configured with two tools (`get_lat_lng`, `get_weather`) that bridge to mcp-gw over HTTP. The LLM backend is chat-back, which proxies to xAI or Copilot depending on the model prefix.
+The agent uses Pydantic AI's `MCPServerStreamableHTTP` toolset to connect to mcp-gw over the native MCP Streamable HTTP transport. Tools (`get_lat_lng`, `get_weather`) are discovered automatically at runtime — no manual bridging code needed. The LLM backend is chat-back, which proxies to xAI or Copilot depending on the model prefix.
 
 ## Configuration
 

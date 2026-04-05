@@ -7,9 +7,9 @@ MCP (Model Context Protocol) gateway server with mock tool implementations. Prov
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
-| `POST` | `/mcp` | JSON-RPC 2.0 MCP endpoint (`initialize`, `tools/list`, `tools/call`) |
-| `GET` | `/tools` | List available tools (REST) |
-| `POST` | `/tools/call` | Execute a tool directly (REST) |
+| `POST` | `/mcp` | MCP Streamable HTTP transport (native protocol via FastMCP) |
+| `GET` | `/tools` | List available tools (REST convenience) |
+| `POST` | `/tools/call` | Execute a tool directly (REST convenience) |
 
 ## Tools
 
@@ -39,11 +39,17 @@ cd mcp-gw
 uv run pytest tests/ -v
 ```
 
-## MCP JSON-RPC example
+## MCP Streamable HTTP example
 
 ```bash
-curl -s http://localhost:8200/mcp -H 'Content-Type: application/json' -d '{
-  "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-  "params": {"name": "get_lat_lng", "arguments": {"location_description": "London, UK"}}
+curl -s http://localhost:8200/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "initialize",
+  "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+             "clientInfo": {"name": "curl", "version": "0.1"}}
 }'
 ```
+
+The response is delivered as an SSE event stream. Pydantic AI's `MCPServerStreamableHTTP` handles this automatically.

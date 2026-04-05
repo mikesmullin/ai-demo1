@@ -1,6 +1,8 @@
 """Mock tool implementations for the MCP gateway.
 
 These return deterministic fake data so the lab works without external APIs.
+Tools are registered with both FastMCP (native MCP transport) and a plain
+dispatch dict (REST convenience endpoints).
 """
 
 from __future__ import annotations
@@ -9,6 +11,12 @@ import hashlib
 import json
 import random
 
+from mcp.server.fastmcp import FastMCP
+
+mcp_server = FastMCP("mcp-gw")
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
 
 def _seeded_random(seed_str: str) -> random.Random:
     """Create a deterministic Random from a string seed."""
@@ -16,7 +24,12 @@ def _seeded_random(seed_str: str) -> random.Random:
     return random.Random(h)
 
 
-# ── Tool definitions (MCP format) ────────────────────────────────────
+_WEATHER_CONDITIONS = [
+    "sunny", "partly cloudy", "overcast", "light rain",
+    "heavy rain", "thunderstorms", "snow", "foggy", "windy", "clear skies",
+]
+
+# ── Tool definitions (kept for REST /tools endpoint) ─────────────────
 
 TOOL_DEFINITIONS = [
     {
@@ -47,12 +60,24 @@ TOOL_DEFINITIONS = [
     },
 ]
 
-# ── Tool implementations ─────────────────────────────────────────────
+# ── Tool implementations (registered with FastMCP) ───────────────────
 
-_WEATHER_CONDITIONS = [
-    "sunny", "partly cloudy", "overcast", "light rain",
-    "heavy rain", "thunderstorms", "snow", "foggy", "windy", "clear skies",
-]
+
+@mcp_server.tool()
+def get_lat_lng(location_description: str) -> str:
+    """Get the latitude and longitude of a location."""
+    result = call_get_lat_lng({"location_description": location_description})
+    return json.dumps(result)
+
+
+@mcp_server.tool()
+def get_weather(lat: float, lng: float) -> str:
+    """Get the current weather at a location given latitude and longitude."""
+    result = call_get_weather({"lat": lat, "lng": lng})
+    return json.dumps(result)
+
+
+# ── Raw implementations (used by REST endpoints + unit tests) ────────
 
 
 def call_get_lat_lng(arguments: dict) -> dict:

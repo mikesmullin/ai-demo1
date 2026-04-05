@@ -93,12 +93,12 @@ The integration test suite lives in `tests/test_integration.py`. It uses **only 
 python3 tests/test_integration.py
 ```
 
-The suite runs 20 tests covering:
+The suite runs 21 tests covering:
 
 - **oauth-idp** — health, OIDC discovery, client registration, user creation, full PKCE flow, userinfo, token introspection
 - **chat-back** — health, model listing, auth rejection, unknown-provider rejection, live xAI inference
-- **mcp-gw** — health, REST tool listing, REST tool calls, MCP initialize, MCP tools/call
-- **chat-front** — health, login via PKCE
+- **mcp-gw** — health, REST tool listing, REST tool calls, MCP initialize (Streamable HTTP), MCP tools/list (Streamable HTTP)
+- **chat-front** — health, login via PKCE, weather agent full loop
 
 ### Unit tests
 
@@ -114,9 +114,10 @@ cd chat-front && uv run pytest tests/ -v
 ## Tech stack
 
 - **Python 3.12** + **uv** for package/project management
-- **FastAPI** + **uvicorn** for all HTTP services
-- **Pydantic AI** for the chat agent (chat-front)
+- **FastAPI** + **uvicorn** for most HTTP services
+- **FastMCP** (from the `mcp` SDK) + **uvicorn** for mcp-gw
+- **Pydantic AI** for the chat agent (chat-front), with `MCPServerStreamableHTTP` for native MCP tool discovery
 - **OpenAI Chat Completions API** format for inference
-- **MCP** (Model Context Protocol) JSON-RPC 2.0 for tool calls
+- **MCP** (Model Context Protocol) Streamable HTTP transport for tool calls
 - **OTEL** GenAI semantic conventions for tracing (chat-back)
 - **bcrypt** + **python-jose** for password hashing and JWT signing (oauth-idp)

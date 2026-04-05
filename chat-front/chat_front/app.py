@@ -14,10 +14,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
+from pydantic_ai.mcp import MCPServerStreamableHTTP
 
 from chat_front.agent import Deps, agent
 from chat_front.config import Settings
-from chat_front.mcp_bridge import McpToolBridge
 from chat_front.oauth import get_token_via_pkce, register_client
 
 settings = Settings()
@@ -70,8 +70,7 @@ class ChatResponse(BaseModel):
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     """Send a message to the AI agent and get a response."""
-    mcp = McpToolBridge(mcp_gw_url=settings.mcp_gw_url)
-    deps = Deps(access_token=req.access_token or "", mcp=mcp)
+    deps = Deps(access_token=req.access_token or "")
 
     # Point pydantic-ai at chat-back
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -84,7 +83,10 @@ async def chat(req: ChatRequest):
     model_name = settings.default_model.split(":", 1)[-1] if ":" in settings.default_model else settings.default_model
     model = OpenAIChatModel(model_name, provider=provider)
 
-    result = await agent.run(req.message, deps=deps, model=model)
+    # Native MCP toolset — connects to mcp-gw via Streamable HTTP
+    mcp_toolset = MCPServerStreamableHTTP(f"{settings.mcp_gw_url}/mcp")
+
+    result = await agent.run(req.message, deps=deps, model=model, toolsets=[mcp_toolset])
     return ChatResponse(reply=result.output)
 
 

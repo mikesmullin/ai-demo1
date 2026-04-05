@@ -1,127 +1,47 @@
-"""MCP Gateway — FastAPI server implementing the MCP protocol over HTTP.
+"""MCP Gateway — FastMCP server with custom REST/health routes.
 
 Supports:
-  - POST /mcp  (JSON-RPC 2.0 endpoint for MCP messages)
-  - tools/list  — list available tools
-  - tools/call  — execute a tool
-  - initialize  — MCP handshake
-
-Also exposes simple REST endpoints for direct tool invocation.
+  - POST /mcp  (MCP Streamable HTTP transport via FastMCP — native protocol)
+  - GET  /health
+  - GET  /tools            (REST convenience)
+  - POST /tools/call       (REST convenience)
 """
 
 from __future__ import annotations
 
 import json
-import uuid
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-from mcp_gw.tools import TOOL_DEFINITIONS, execute_tool
-
-app = FastAPI(
-    title="mcp-gw",
-    version="0.1.0",
-    description="MCP server with mock tool implementations",
-)
+from mcp_gw.tools import TOOL_DEFINITIONS, execute_tool, mcp_server
 
 
-# ── Health ───────────────────────────────────────────────────────────
+# ── Custom routes on the FastMCP server ──────────────────────────────
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-# ── JSON-RPC 2.0 / MCP endpoint ─────────────────────────────────────
-
-class JsonRpcRequest(BaseModel):
-    jsonrpc: str = "2.0"
-    id: int | str | None = None
-    method: str
-    params: dict | None = None
+@mcp_server.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 
-class JsonRpcResponse(BaseModel):
-    jsonrpc: str = "2.0"
-    id: int | str | None = None
-    result: dict | list | None = None
-    error: dict | None = None
+@mcp_server.custom_route("/tools", methods=["GET"])
+async def list_tools(request: Request) -> JSONResponse:
+    return JSONResponse({"tools": TOOL_DEFINITIONS})
 
 
-@app.post("/mcp")
-def mcp_endpoint(req: JsonRpcRequest) -> JsonRpcResponse:
-    """Handle MCP JSON-RPC requests."""
+@mcp_server.custom_route("/tools/call", methods=["POST"])
+async def call_tool(request: Request) -> JSONResponse:
+    body = await request.json()
+    name = body.get("name")
+    arguments = body.get("arguments", {})
+    if not name:
+        return JSONResponse({"detail": "Missing 'name'"}, status_code=400)
     try:
-        result = _handle_mcp_method(req.method, req.params or {})
-        return JsonRpcResponse(id=req.id, result=result)
+        result = execute_tool(name, arguments)
+        return JSONResponse({"result": result})
     except ValueError as e:
-        return JsonRpcResponse(
-            id=req.id,
-            error={"code": -32602, "message": str(e)},
-        )
-    except Exception as e:
-        return JsonRpcResponse(
-            id=req.id,
-            error={"code": -32603, "message": f"Internal error: {e}"},
-        )
+        return JSONResponse({"detail": str(e)}, status_code=400)
 
 
-def _handle_mcp_method(method: str, params: dict) -> dict | list:
-    if method == "initialize":
-        return {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {
-                "tools": {"listChanged": False},
-            },
-            "serverInfo": {
-                "name": "mcp-gw",
-                "version": "0.1.0",
-            },
-        }
-
-    if method == "notifications/initialized":
-        return {}
-
-    if method == "tools/list":
-        return {"tools": TOOL_DEFINITIONS}
-
-    if method == "tools/call":
-        tool_name = params.get("name")
-        arguments = params.get("arguments", {})
-        if not tool_name:
-            raise ValueError("Missing 'name' in tools/call params")
-        result = execute_tool(tool_name, arguments)
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(result),
-                }
-            ],
-        }
-
-    raise ValueError(f"Unknown method: {method}")
-
-
-# ── REST convenience endpoints ───────────────────────────────────────
-
-@app.get("/tools")
-def list_tools():
-    """List available tools (REST)."""
-    return {"tools": TOOL_DEFINITIONS}
-
-
-class ToolCallRequest(BaseModel):
-    name: str
-    arguments: dict = {}
-
-
-@app.post("/tools/call")
-def call_tool(req: ToolCallRequest):
-    """Call a tool directly (REST)."""
-    try:
-        result = execute_tool(req.name, req.arguments)
-        return {"result": result}
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+# The ASGI app served by uvicorn — uses FastMCP's Streamable HTTP transport
+app = mcp_server.streamable_http_app()
