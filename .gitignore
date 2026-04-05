@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info/
+build/
+dist/
+wheels/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+
+# uv
+uv.lock
+
+# Environment / secrets
+.env
+
+# launch.sh runtime
+.logs/
+.pids/
+
+# Misc
+/tmp/
+*.swp
+*.swo
+*~

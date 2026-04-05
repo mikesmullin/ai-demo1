@@ -1,0 +1,26 @@
+[project]
+name = "chat-back"
+version = "0.1.0"
+description = "AI inference proxy — OpenAI-compatible API routing to multiple providers"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.135.3",
+    "httpx>=0.28.1",
+    "opentelemetry-api>=1.40.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.40.0",
+    "opentelemetry-instrumentation-fastapi>=0.61b0",
+    "opentelemetry-sdk>=1.40.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "python-jose[cryptography]>=3.5.0",
+    "uvicorn>=0.43.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.1",
+    "respx>=0.22.0",
+]
