@@ -13,6 +13,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 from pydantic_ai.mcp import MCPServerStreamableHTTP
 
@@ -72,22 +73,33 @@ async def chat(req: ChatRequest):
     """Send a message to the AI agent and get a response."""
     deps = Deps(access_token=req.access_token or "")
 
+    # Generate W3C traceparent so chat-back and mcp-gw join the same trace
+    trace_id = os.urandom(16).hex()
+    span_id = os.urandom(8).hex()
+    traceparent = f"00-{trace_id}-{span_id}-01"
+
     # Point pydantic-ai at chat-back
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    provider = OpenAIProvider(
+    openai_client = AsyncOpenAI(
         base_url=f"{settings.chat_back_url}/v1",
         api_key=req.access_token or "no-token",
+        default_headers={"traceparent": traceparent},
     )
+    provider = OpenAIProvider(openai_client=openai_client)
     model_name = settings.default_model.split(":", 1)[-1] if ":" in settings.default_model else settings.default_model
     model = OpenAIChatModel(model_name, provider=provider)
 
     # Native MCP toolset — connects to mcp-gw via Streamable HTTP
-    # Pass the user's OAuth token so mcp-gw can authenticate + attribute tool calls
+    # Pass the user's OAuth token + traceparent so mcp-gw can authenticate,
+    # attribute tool calls, and join the same distributed trace.
+    mcp_headers: dict[str, str] = {"traceparent": traceparent}
+    if req.access_token:
+        mcp_headers["Authorization"] = f"Bearer {req.access_token}"
     mcp_toolset = MCPServerStreamableHTTP(
         f"{settings.mcp_gw_url}/mcp",
-        headers={"Authorization": f"Bearer {req.access_token}"} if req.access_token else None,
+        headers=mcp_headers,
     )
 
     result = await agent.run(req.message, deps=deps, model=model, toolsets=[mcp_toolset])

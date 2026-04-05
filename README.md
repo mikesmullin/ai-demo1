@@ -1,6 +1,8 @@
-# GenAI Info+Tool Decen Arch Demo 001
+# GenAI LLM+MCP Decen Arch Demo 001
 
 A local development lab that replicates a production AI chat stack end-to-end: OAuth authentication, LLM inference proxying, tool-calling via MCP, and OpenTelemetry tracing — all running on localhost with no external dependencies beyond an xAI API key.
+
+![Distributed trace in Grafana Tempo showing the full agent loop across chat-back and mcp-gw](docs/screenshots/20260404-235846-screenshot.png)
 
 ## Motivation
 
@@ -16,9 +18,9 @@ The goal is to give developers a self-contained environment where every piece of
 | Service | Port | Description |
 |---------|------|-------------|
 | [oauth-idp](oauth-idp/) | 9000 | Custom OAuth2 IDP (Authorization Code + PKCE, RS256 JWTs) |
+| [chat-front](chat-front/) | 8300 | Pydantic AI chat agent — authenticates via OAuth, calls LLM + tools |
 | [chat-back](chat-back/) | 8100 | AI inference proxy — OpenAI-compatible API, routes to xAI or Copilot |
 | [mcp-gw](mcp-gw/) | 8200 | MCP tool server with mock implementations (get_lat_lng, get_weather) |
-| [chat-front](chat-front/) | 8300 | Pydantic AI chat agent — authenticates via OAuth, calls LLM + tools |
 
 ## End-to-end flow
 
@@ -119,5 +121,5 @@ cd chat-front && uv run pytest tests/ -v
 - **Pydantic AI** for the chat agent (chat-front), with `MCPServerStreamableHTTP` for native MCP tool discovery
 - **OpenAI Chat Completions API** format for inference
 - **MCP** (Model Context Protocol) Streamable HTTP transport for tool calls
-- **OTEL** GenAI semantic conventions for tracing (chat-back)
+- **OTEL** GenAI semantic conventions for tracing (chat-back + mcp-gw), W3C `traceparent` propagation for distributed traces
 - **bcrypt** + **python-jose** for password hashing and JWT signing (oauth-idp)

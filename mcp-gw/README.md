@@ -53,3 +53,13 @@ curl -s http://localhost:8200/mcp \
 ```
 
 The response is delivered as an SSE event stream. Pydantic AI's `MCPServerStreamableHTTP` handles this automatically.
+
+## Authentication
+
+All protected endpoints (`/mcp`, `/tools/call`) require a valid JWT Bearer token issued by oauth-idp. Public endpoints (`/health`, `/tools`) do not require authentication.
+
+## OTEL Tracing
+
+Every tool execution emits a span following the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) with attributes including `gen_ai.operation.name`, `gen_ai.tool.name`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, and `enduser.id` from the JWT. Traces export via OTLP gRPC to Grafana Tempo (or any OTEL collector).
+
+If the incoming request includes a W3C `traceparent` header, tool spans join that distributed trace.

@@ -12,6 +12,7 @@ import json
 
 import httpx
 from jose import jwt, JWTError
+from opentelemetry.propagate import extract
 
 from mcp_gw.config import settings
 
@@ -89,6 +90,14 @@ class JWTAuthMiddleware:
             return
 
         current_user.set(claims)
+
+        # Extract W3C trace context for distributed tracing
+        from mcp_gw.tracing import incoming_context
+        carrier = {}
+        for hdr_name, hdr_value in scope.get("headers", []):
+            carrier[hdr_name.decode()] = hdr_value.decode()
+        incoming_context.set(extract(carrier))
+
         await self.app(scope, receive, send)
 
     @staticmethod

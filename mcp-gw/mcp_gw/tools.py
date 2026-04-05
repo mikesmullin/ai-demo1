@@ -116,10 +116,16 @@ def execute_tool(name: str, arguments: dict) -> dict:
         raise ValueError(f"Unknown tool: {name}")
 
     from mcp_gw.auth import current_user
-    from mcp_gw.tracing import get_tracer
+    from mcp_gw.tracing import get_tracer, incoming_context
 
     tracer = get_tracer()
     claims = current_user.get()
+    ctx = incoming_context.get()
+
+    # If a propagated trace context exists, use it as parent
+    span_kwargs = {}
+    if ctx is not None:
+        span_kwargs["context"] = ctx
 
     with tracer.start_as_current_span(
         f"execute_tool {name}",
@@ -128,6 +134,7 @@ def execute_tool(name: str, arguments: dict) -> dict:
             "gen_ai.operation.name": "execute_tool",
             "gen_ai.tool.name": name,
         },
+        **span_kwargs,
     ) as span:
         span.set_attribute("gen_ai.tool.call.arguments", json.dumps(arguments))
         if claims:

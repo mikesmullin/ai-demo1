@@ -43,6 +43,8 @@ uv run uvicorn chat_back.app:app --port 8100
 
 Every inference request emits a span following the [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) with attributes including `gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.provider.name`, token usage, and finish reasons. Traces export via OTLP gRPC to Grafana Tempo (or any OTEL collector).
 
+If the incoming request includes a W3C `traceparent` header, the inference span joins that distributed trace — allowing a single trace to cover the full agent loop across chat-back and mcp-gw.
+
 ## Tests
 
 ```bash

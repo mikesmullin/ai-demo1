@@ -22,6 +22,8 @@ User ──POST /chat──▶ chat-front (Pydantic AI agent)
 
 The agent uses Pydantic AI's `MCPServerStreamableHTTP` toolset to connect to mcp-gw over the native MCP Streamable HTTP transport. Tools (`get_lat_lng`, `get_weather`) are discovered automatically at runtime — no manual bridging code needed. The LLM backend is chat-back, which proxies to xAI or Copilot depending on the model prefix.
 
+chat-front generates a W3C `traceparent` header per `/chat` request and passes it to both chat-back and mcp-gw, so the entire agent loop (inference calls + tool executions) appears as a single distributed trace in Grafana Tempo.
+
 ## Configuration
 
 Environment variables (or `.env` file):

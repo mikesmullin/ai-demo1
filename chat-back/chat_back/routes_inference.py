@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from opentelemetry import trace
+from opentelemetry.propagate import extract
 from opentelemetry.trace import StatusCode
 
 from chat_back.auth import validate_token
@@ -19,6 +20,7 @@ router = APIRouter(tags=["inference"])
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(
     request: ChatCompletionRequest,
+    http_request: Request,
     claims: dict = Depends(validate_token),
 ):
     """OpenAI-compatible chat completions endpoint.
@@ -28,9 +30,13 @@ async def chat_completions(
     provider_key, model_name = parse_model_string(request.model)
     tracer = get_tracer()
 
+    # Extract W3C trace context from incoming headers (if present)
+    ctx = extract(dict(http_request.headers))
+
     # GenAI semantic convention: span name = "{operation} {model}"
     with tracer.start_as_current_span(
         f"chat {model_name}",
+        context=ctx,
         kind=trace.SpanKind.CLIENT,
         attributes={
             "gen_ai.operation.name": "chat",

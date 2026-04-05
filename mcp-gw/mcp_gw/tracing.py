@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextvars
+
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -9,6 +11,11 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
 from mcp_gw.config import settings
+
+# ── Propagated trace context from incoming request ───────────────────
+incoming_context: contextvars.ContextVar = contextvars.ContextVar(
+    "incoming_context", default=None,
+)
 
 
 def setup_tracing() -> None:
