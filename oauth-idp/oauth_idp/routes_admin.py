@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import bcrypt
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
+from oauth_idp.crypto import create_access_token
 from oauth_idp.models import (
     ClientResponse,
     CreateClientRequest,
@@ -108,3 +110,19 @@ def _user_response(u: StoredUser) -> UserResponse:
         email=u.email,
         display_name=u.display_name,
     )
+
+
+# --- Test token minting (mock IDP only — not for production) ---
+
+
+class MintTokenRequest(BaseModel):
+    sub: str = "test-user"
+    scope: str = ""
+    expires_in: int = 3600
+
+
+@router.post("/token")
+def mint_token(req: MintTokenRequest):
+    """Mint an access token directly (no PKCE flow). For testing only."""
+    token = create_access_token(sub=req.sub, scope=req.scope, expires_in=req.expires_in)
+    return {"access_token": token, "token_type": "Bearer", "expires_in": req.expires_in}

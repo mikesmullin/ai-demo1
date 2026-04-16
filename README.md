@@ -1,125 +1,204 @@
-# GenAI LLM+MCP Decen Arch Demo 001
+# GenAI LLM+MCP Decen Arch Demo 001 V2
 
-A local development lab that replicates a production AI chat stack end-to-end: OAuth authentication, LLM inference proxying, tool-calling via MCP, and OpenTelemetry tracing — all running on localhost with no external dependencies beyond an xAI API key.
+A Kubernetes-native AI gateway lab that routes LLM inference and MCP tool
+calls through **Envoy AI Gateway**, backed by **Azure AI Foundry** and a
+local **FastMCP** tool server — all running on a local KIND cluster.
 
-![Distributed trace in Grafana Tempo showing the full agent loop across chat-back and mcp-gw](docs/screenshots/20260404-235846-screenshot.png)
+Two client implementations demonstrate the full inference + tool-call loop:
+- **chat-front1-py** — headless Pydantic AI agent (runs once on pod start, logs to stdout)
+- **chat-front2-ui** — browser chat UI (ChatGPT-style, served at `http://localhost:30200`)
 
-## Motivation
+## Architecture
 
-The goal is to give developers a self-contained environment where every piece of the AI inference pipeline is visible and debuggable locally. Instead of pointing at shared staging services, each component runs as its own process with its own logs:
+```
+               ┌────────────────────────────────────────────────────────┐
+               │              KIND cluster (ai-gw-lab)                  │
+               │                                                        │
+               │  ┌──────────────────────────────────────────────────┐  │
+               │  │        oauth-idp  :30300  (mock IDP)             │  │
+               │  │        issues JWT Bearer tokens for clients      │  │
+               │  └────────────────┬──────────────────┬──────────────┘  │
+               │               JWT ▼              JWT ▼                 │
+ browser       │   ┌─────────────────┐   ┌───────────────────────────┐  │
+ :30200 ───────│─▶│ chat-front2-ui  │   │      chat-front1-py       │  │
+               │   │ browser proxy   │   │      Pydantic AI agent    │  │
+               │   └────────┬────────┘   └─────────────┬─────────────┘  │
+               │            │ Bearer JWT               │ Bearer JWT     │
+ curl  :30080  │    ┌───────▼──────────────────────────▼──────┐         │
+───────────────│──▶│           Envoy AI Gateway              │         │
+               │    │      Gateway + Routes + JWT auth        │         │
+               │    └──┬────────────────────────────┬─────────┘         │
+               │       │ /v1/chat/completions       │ /mcp              │
+               │       ▼                            ▼                   │
+               │  ┌──────────────┐        ┌─────────────────┐           │
+               │  │  Azure AI    │        │ mcp-server      │ FastMCP   │
+               │  │  Foundry     │        │ - get_lat_lng   │           │
+               │  │  (gpt-5.1)   │        │ - get_weather   │           │
+               │  └──────────────┘        └─────────────────┘           │
+               └────────────────────────────────────────────────────────┘
+```
 
-- **Understand the full request lifecycle** — from OAuth token issuance, through the chat agent, to the upstream LLM provider and back.
-- **Develop and test in isolation** — each service has its own unit tests; the integration suite exercises the whole chain.
-- **Experiment with provider routing** — chat-back routes to xAI or Copilot based on a model-name prefix (`xai:grok-4-1-fast-reasoning`, `copilot:claude-sonnet-4.6`), making it easy to compare providers.
-- **Prototype tool-calling flows** — mcp-gw provides mock MCP tools so the agent can exercise tool_call round-trips without external APIs.
+**Envoy replaces chat-back** — there is no separate inference proxy.
+Envoy AI Gateway routes `/v1/chat/completions` to Azure AI Foundry and
+`/mcp` to mcp-server based on `AIGatewayRoute` and `MCPRoute` CRDs.
 
 ## Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| [oauth-idp](oauth-idp/) | 9000 | Custom OAuth2 IDP (Authorization Code + PKCE, RS256 JWTs) |
-| [chat-front](chat-front/) | 8300 | Pydantic AI chat agent — authenticates via OAuth, calls LLM + tools |
-| [chat-back](chat-back/) | 8100 | AI inference proxy — OpenAI-compatible API, routes to xAI or Copilot |
-| [mcp-gw](mcp-gw/) | 8200 | MCP tool server with mock implementations (get_lat_lng, get_weather) |
+| Component | Port | Description |
+|-----------|------|-------------|
+| [Envoy AI Gateway](docs/SETUP.md) | 30080 | Routes inference + MCP, JWT enforcement, deployed via Helm |
+| [mcp-server](mcp-server/) | 8200 (in-cluster) | FastMCP tool server (`get_lat_lng`, `get_weather`) |
+| [chat-front2-ui](chat-front2-ui/) | 30200 | Browser chat UI — ChatGPT-style, full inference + tool-call loop |
+| [chat-front1-py](chat-front1-py/) | — | Headless Pydantic AI agent — runs one loop on start, logs to stdout |
+| [oauth-idp](oauth-idp/) | 30300 | Mock OAuth2 IDP — mints JWTs for testing (not for production) |
 
-## End-to-end flow
+## Logging
 
-```
-                         PKCE
-  ┌────────────┐  ◀──────────────▶  ┌───────────┐
-  │ chat-front │        tokens        │ oauth-idp │
-  │   :8300    │                      │   :9000   │
-  └──┬─────┬───┘                      └───────────┘
-     │     │
-     │     │  tool_call (MCP over HTTP)
-     │     ▼
-     │   ┌──────────┐
-     │   │  mcp-gw  │  ← one of potentially many MCP servers
-     │   │  :8200   │
-     │   └──────────┘
-     │
-     │  /v1/chat/completions - inference
-     ▼
-  ┌───────────┐   upstream   ┌──────────────┐
-  │ chat-back │────────────▶│ xAI / Copilot│
-  │   :8100   │              └──────────────┘
-  └───────────┘
-```
+![Distributed trace in Grafana Tempo showing the full agent loop across chat-front and mcp-server](docs/screenshots/20260404-235846-screenshot.png)
 
-The Pydantic AI agent in chat-front owns the tool-calling loop: it sends inference requests to chat-back, receives assistant responses (which may include `tool_call` requests), executes those tools against mcp-gw (or any other connected MCP server), and feeds the results back to the LLM. chat-back is a pure inference proxy — it never calls mcp-gw.
-
-## Quick start
+## Quick Start
 
 ### Prerequisites
 
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) package manager
-- An xAI API key in `chat-back/.env`:
-  ```
-  XAI_API_KEY=xai-...
-  ```
+- Podman 5.x, KIND 0.31+, Helm 3.17+, kubectl 1.35+
+- Azure CLI + an Azure AI Foundry resource (see [docs/AZ_CLI.md](docs/AZ_CLI.md))
 
-### launch.sh
-
-The workspace launcher builds, starts, and manages all services in dependency order.
+### 1. Create the cluster and deploy
 
 ```bash
-# Start everything
-./launch.sh
+# One-time: fill in your Azure API key
+cp k8s/secrets/azure-ai-foundry-apikey.yaml.example \
+   k8s/secrets/azure-ai-foundry-apikey.yaml
+# edit the file
 
-# Start a single service
-./launch.sh oauth-idp
-
-# Check what's running
-./launch.sh status
-
-# Tail logs (all services, or a specific one)
-./launch.sh logs
-./launch.sh logs chat-back
-
-# Stop everything
-./launch.sh stop
+make restart   # tear down any existing cluster and build fresh
+make test      # verify 8/8 integration tests pass
 ```
 
-Services are started in order (oauth-idp → chat-back → mcp-gw → chat-front) and each is health-checked before the next one starts. PIDs are stored in `.pids/` and logs in `.logs/`.
+See [docs/SETUP.md](docs/SETUP.md) for a full explanation of each step.
 
-### Integration tests
+### 2. Use the browser UI
 
-The integration test suite lives in `tests/test_integration.py`. It uses **only the Python stdlib** (no pip install needed) and exercises the full chain:
+Open **http://localhost:30200** — a ChatGPT-style interface that routes
+inference and tool calls through Envoy AI Gateway. Check the
+**Enable MCP tools** box to see the full RAG loop (LLM calls
+`get_lat_lng` → `get_weather` → final answer).
+
+### 3. Verify via curl
 
 ```bash
-# Start all services first
-./launch.sh
+# Envoy ready?
+kubectl get gateway ai-gw-lab
 
-# Run the tests
+# All pods running?
+kubectl get pods -A
+
+# Check chat-front1-py logs for the one-shot agent run
+kubectl logs -l app=chat-front1-py
+```
+
+## curl Examples
+
+> These hit Envoy directly at `:30080`. All requests require a Bearer
+> token — get one with:
+> ```bash
+> TOKEN=$(curl -s -X POST http://localhost:30300/admin/token \
+>   -H "Content-Type: application/json" \
+>   -d '{"sub":"test"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+> ```
+> Or just use the browser UI at **http://localhost:30200** — it handles auth automatically.
+
+### Inference (Azure AI Foundry via Envoy)
+
+```bash
+curl -s http://localhost:30080/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'x-ai-eg-model: gpt-5.1' \
+  -d '{
+  "model": "gpt-5.1",
+  "messages": [
+    {"role": "system", "content": "Respond in one short sentence."},
+    {"role": "user", "content": "What is 2+2?"}
+  ],
+  "max_tokens": 50
+}'
+```
+
+### MCP Tool Call (mcp-server via Envoy)
+
+```bash
+# 1. Initialize MCP session
+curl -s http://localhost:30080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {"name": "curl", "version": "0.1"}
+  }
+}'
+# Note the Mcp-Session-Id response header
+
+# 2. List tools
+curl -s http://localhost:30080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Mcp-Session-Id: <session-id>' \
+  -d '{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}'
+
+# 3. Call a tool
+curl -s http://localhost:30080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Mcp-Session-Id: <session-id>' \
+  -d '{
+  "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+  "params": {
+    "name": "get_lat_lng",
+    "arguments": {"location_description": "London, UK"}
+  }
+}'
+```
+
+## Integration Tests
+
+The test suite targets Envoy at `localhost:30080` (the cluster must be
+running):
+
+```bash
 python3 tests/test_integration.py
 ```
 
-The suite runs 21 tests covering:
+See [docs/TEST.md](docs/TEST.md) for details.
 
-- **oauth-idp** — health, OIDC discovery, client registration, user creation, full PKCE flow, userinfo, token introspection
-- **chat-back** — health, model listing, auth rejection, unknown-provider rejection, live xAI inference
-- **mcp-gw** — health, REST tool listing, REST tool calls, MCP initialize (Streamable HTTP), MCP tools/list (Streamable HTTP)
-- **chat-front** — health, login via PKCE, weather agent full loop
+## Unit Tests
 
-### Unit tests
-
-Each service has its own test suite runnable via pytest:
+Each service has its own pytest suite:
 
 ```bash
-cd oauth-idp && uv run pytest tests/ -v
-cd chat-back && uv run pytest tests/ -v
-cd mcp-gw   && uv run pytest tests/ -v
-cd chat-front && uv run pytest tests/ -v
+cd mcp-server   && uv run pytest tests/ -v
+cd chat-front1-py && uv run pytest tests/ -v
 ```
 
-## Tech stack
+## Docs
 
-- **Python 3.12** + **uv** for package/project management
-- **FastAPI** + **uvicorn** for most HTTP services
-- **FastMCP** (from the `mcp` SDK) + **uvicorn** for mcp-gw
-- **Pydantic AI** for the chat agent (chat-front), with `MCPServerStreamableHTTP` for native MCP tool discovery
-- **OpenAI Chat Completions API** format for inference
-- **MCP** (Model Context Protocol) Streamable HTTP transport for tool calls
-- **OTEL** GenAI semantic conventions for tracing (chat-back + mcp-gw), W3C `traceparent` propagation for distributed traces
-- **bcrypt** + **python-jose** for password hashing and JWT signing (oauth-idp)
+| Document | Description |
+|----------|-------------|
+| [SETUP.md](docs/SETUP.md) | Full step-by-step deployment guide |
+| [CLUSTER.md](docs/CLUSTER.md) | KIND cluster details |
+| [AZ_CLI.md](docs/AZ_CLI.md) | Azure CLI setup & teardown |
+| [MCP.md](docs/MCP.md) | MCP gateway and MCPRoute configuration |
+| [TEST.md](docs/TEST.md) | Testing guide |
+| [PROMPT.md](docs/PROMPT.md) | Original project prompt |
+
+## Tech Stack
+
+- **Kubernetes** (KIND) + **Envoy AI Gateway** for inference routing and MCP proxying
+- **Azure AI Foundry** (gpt-5.1) as the upstream LLM provider
+- **Python 3.12** + **uv** for package management
+- **Pydantic AI** (chat-front1-py) with `MCPServerStreamableHTTP` for native MCP tool discovery
+- **FastAPI + vanilla JS** (chat-front2-ui) for the browser chat UI with server-side Envoy proxy
+- **FastMCP** (mcp-server) for MCP Streamable HTTP tool serving
+- **Podman** (rootless) for container builds

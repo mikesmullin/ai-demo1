@@ -1,0 +1,13 @@
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: MCPRoute
+metadata:
+  name: mcp-tools
+spec:
+  parentRefs:
+    - name: ai-gw-lab
+      sectionName: http
+  path: /mcp
+  backendRefs:
+    - name: mcp-server
+      port: 8200
+      path: /mcp

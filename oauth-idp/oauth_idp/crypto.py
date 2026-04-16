@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import time
 
 from jose import jwt
@@ -11,7 +12,7 @@ from jose import jwt
 # Simple RSA key for local dev — generated once at startup.
 # In production you'd load from env/secrets.
 _ALGORITHM = "RS256"
-_ISSUER = "http://localhost:9000"
+_ISSUER = os.environ.get("ISSUER", "http://localhost:9000")
 
 # We generate an ephemeral RSA key pair at import time for simplicity.
 from cryptography.hazmat.primitives.asymmetric import rsa

@@ -1,0 +1,48 @@
+# Envoy Gateway Helm values required for Envoy AI Gateway integration.
+#
+# Source: envoyproxy/ai-gateway manifests/envoy-gateway-values.yaml
+# Kept here so the repo is self-contained — no dependency on the cloned tmp/ repo at install time.
+#
+# Three things are enabled here, all required:
+#
+#   extensionManager  — registers the AI Gateway controller as Envoy Gateway's xDS
+#                       translation hook. Without this, AIGatewayRoute and MCPRoute
+#                       resources are silently ignored and nothing routes.
+#
+#   enableBackend     — allows Backend resources (used for the Azure FQDN endpoint).
+#
+#   enableEnvoyPatchPolicy — allows EnvoyPatchPolicy (used for the HTTP/1.1 upstream
+#                            workaround that prevents protocol errors with Azure).
+
+config:
+  envoyGateway:
+    gateway:
+      controllerName: gateway.envoyproxy.io/gatewayclass-controller
+    logging:
+      level:
+        default: info
+    provider:
+      type: Kubernetes
+    extensionApis:
+      enableEnvoyPatchPolicy: true
+      enableBackend: true
+    extensionManager:
+      hooks:
+        xdsTranslator:
+          translation:
+            listener:
+              includeAll: true
+            route:
+              includeAll: true
+            cluster:
+              includeAll: true
+            secret:
+              includeAll: true
+          post:
+            - Translation
+            - Cluster
+            - Route
+      service:
+        fqdn:
+          hostname: ai-gateway-controller.envoy-ai-gateway-system.svc.cluster.local
+          port: 1063

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from oauth_idp.crypto import get_jwks
+from oauth_idp.crypto import _ISSUER, get_jwks
 from oauth_idp.routes_admin import router as admin_router
 from oauth_idp.routes_oauth import router as oauth_router
 
@@ -21,7 +21,7 @@ def health():
 
 @app.get("/.well-known/openid-configuration")
 def openid_configuration():
-    base = "http://localhost:9000"
+    base = _ISSUER
     return {
         "issuer": base,
         "authorization_endpoint": f"{base}/authorize",

@@ -15,6 +15,7 @@ uv.lock
 
 # Environment / secrets
 .env
+k8s/secrets/
 
 # launch.sh runtime
 .logs/

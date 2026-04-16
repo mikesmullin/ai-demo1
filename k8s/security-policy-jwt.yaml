@@ -1,0 +1,22 @@
+# SecurityPolicy — JWT authentication on all Gateway routes
+# Requires a valid Bearer token signed by the in-cluster oauth-idp mock.
+# This covers both inference (AIGatewayRoute) and MCP (MCPRoute).
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: jwt-authn
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ai-gw-lab
+  jwt:
+    providers:
+      - name: oauth-idp
+        issuer: "http://localhost:9000"
+        audiences:
+          - "http://localhost:9000"
+        remoteJWKS:
+          uri: http://oauth-idp.default.svc:9000/.well-known/jwks.json

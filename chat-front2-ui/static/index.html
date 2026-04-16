@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Chat — Envoy AI Gateway Lab</title>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --chat-bg: #ffffff;
+    --user-bg: #e3f2fd;
+    --assistant-bg: #f0f0f0;
+    --tool-bg: #fff8e1;
+    --border: #e0e0e0;
+    --primary: #1976d2;
+    --text: #1a1a1a;
+    --muted: #666;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--chat-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header h1 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  header .badge {
+    font-size: 11px;
+    background: var(--primary);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+
+  header .status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  #chat-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    max-width: 800px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .message {
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .message .role {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    color: var(--muted);
+  }
+
+  .message .bubble {
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 100%;
+  }
+
+  .message.user .bubble { background: var(--user-bg); }
+  .message.assistant .bubble { background: var(--assistant-bg); }
+  .message.tool .bubble {
+    background: var(--tool-bg);
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 13px;
+  }
+  .message.system .bubble {
+    background: transparent;
+    color: var(--muted);
+    font-style: italic;
+    font-size: 13px;
+    padding: 4px 0;
+  }
+
+  .message .bubble code {
+    background: rgba(0,0,0,0.06);
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+
+  #input-area {
+    background: var(--chat-bg);
+    border-top: 1px solid var(--border);
+    padding: 16px 20px;
+  }
+
+  #input-area .inner {
+    max-width: 800px;
+    margin: 0 auto;
+    display: flex;
+    gap: 8px;
+  }
+
+  #input-area textarea {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    min-height: 44px;
+    max-height: 120px;
+    outline: none;
+  }
+
+  #input-area textarea:focus { border-color: var(--primary); }
+
+  #input-area button {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    padding: 0 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  #input-area button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  #input-area button:hover:not(:disabled) { opacity: 0.9; }
+
+  .tools-toggle {
+    font-size: 12px;
+    color: var(--primary);
+    cursor: pointer;
+    margin-top: 4px;
+    user-select: none;
+  }
+
+  .tools-toggle:hover { text-decoration: underline; }
+
+  #tool-settings {
+    display: none;
+    margin-top: 8px;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  #tool-settings.open { display: block; }
+
+  #tool-settings label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AI Chat</h1>
+  <span class="badge">Envoy AI Gateway</span>
+  <span class="status" id="status">Ready</span>
+</header>
+
+<div id="chat-container"></div>
+
+<div id="input-area">
+  <div class="inner">
+    <textarea id="prompt" rows="1" placeholder="Type a message..." autofocus></textarea>
+    <button id="send-btn" onclick="sendMessage()">Send</button>
+  </div>
+  <div style="max-width:800px;margin:0 auto;">
+    <span class="tools-toggle" onclick="toggleTools()">⚙ Tool settings</span>
+    <div id="tool-settings">
+      <label>
+        <input type="checkbox" id="enable-tools" checked>
+        Enable MCP tools (get_lat_lng, get_weather)
+      </label>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+
+const messages = []; // OpenAI-format message history
+let mcpSessionId = null;
+let mcpToolsDef = null; // cached tool definitions from MCP
+let busy = false;
+
+const chatContainer = document.getElementById("chat-container");
+const promptEl = document.getElementById("prompt");
+const sendBtn = document.getElementById("send-btn");
+const statusEl = document.getElementById("status");
+
+// ── Auto-resize textarea ───────────────────────────────────────────
+
+promptEl.addEventListener("input", () => {
+  promptEl.style.height = "auto";
+  promptEl.style.height = Math.min(promptEl.scrollHeight, 120) + "px";
+});
+
+promptEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+// ── UI helpers ─────────────────────────────────────────────────────
+
+function addBubble(role, text) {
+  const div = document.createElement("div");
+  div.className = `message ${role}`;
+  div.innerHTML = `<span class="role">${role}</span><div class="bubble">${escapeHtml(text)}</div>`;
+  chatContainer.appendChild(div);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+function setStatus(text) { statusEl.textContent = text; }
+
+function setBusy(b) {
+  busy = b;
+  sendBtn.disabled = b;
+  promptEl.disabled = b;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function toggleTools() {
+  document.getElementById("tool-settings").classList.toggle("open");
+}
+
+// ── MCP helpers ────────────────────────────────────────────────────
+
+async function mcpRequest(body) {
+  const headers = { "Content-Type": "application/json" };
+  if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId;
+
+  const resp = await fetch("/api/mcp", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  // Capture session ID
+  const sid = resp.headers.get("Mcp-Session-Id");
+  if (sid) mcpSessionId = sid;
+
+  if (!resp.ok) throw new Error(`MCP error ${resp.status}`);
+
+  const text = await resp.text();
+  // Handle SSE format
+  for (const line of text.split("\n")) {
+    if (line.startsWith("data: ")) {
+      return JSON.parse(line.slice(6));
+    }
+  }
+  return JSON.parse(text);
+}
+
+async function ensureMcpSession() {
+  if (mcpSessionId && mcpToolsDef) return;
+
+  setStatus("Connecting to MCP tools...");
+
+  // Initialize
+  const initResp = await mcpRequest({
+    jsonrpc: "2.0", id: 1, method: "initialize",
+    params: {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "chat-front2-ui", version: "0.1.0" },
+    },
+  });
+
+  // Send initialized notification
+  await mcpRequest({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+  // List tools
+  const toolsResp = await mcpRequest({
+    jsonrpc: "2.0", id: 2, method: "tools/list", params: {},
+  });
+
+  mcpToolsDef = (toolsResp.result?.tools || []).map(t => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description || "",
+      parameters: t.inputSchema || { type: "object", properties: {} },
+    },
+  }));
+
+  setStatus(`Ready — ${mcpToolsDef.length} tools loaded`);
+}
+
+async function callMcpTool(name, args) {
+  const resp = await mcpRequest({
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+  const content = resp.result?.content || [];
+  return content.map(c => c.text || JSON.stringify(c)).join("\n");
+}
+
+// ── Main send loop ─────────────────────────────────────────────────
+
+async function sendMessage() {
+  const text = promptEl.value.trim();
+  if (!text || busy) return;
+
+  setBusy(true);
+  promptEl.value = "";
+  promptEl.style.height = "auto";
+
+  // Add user message
+  messages.push({ role: "user", content: text });
+  addBubble("user", text);
+
+  const toolsEnabled = document.getElementById("enable-tools").checked;
+
+  try {
+    // Ensure MCP session if tools are enabled
+    if (toolsEnabled) {
+      await ensureMcpSession();
+    }
+
+    // Agentic loop — keep calling until no more tool_calls
+    let maxIter = 10;
+    while (maxIter-- > 0) {
+      setStatus("Thinking...");
+
+      const body = {
+        messages: messages,
+        max_completion_tokens: 1024,
+      };
+      if (toolsEnabled && mcpToolsDef?.length) {
+        body.tools = mcpToolsDef;
+      }
+
+      const resp = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      const choice = data.choices?.[0];
+      if (!choice) throw new Error("No choices in response");
+
+      const msg = choice.message;
+
+      // If the model returned text content, show it
+      if (msg.content) {
+        messages.push({ role: "assistant", content: msg.content });
+        addBubble("assistant", msg.content);
+      }
+
+      // If the model wants tool calls, execute them
+      if (msg.tool_calls?.length) {
+        // Push the assistant message with tool_calls into history
+        messages.push(msg);
+
+        for (const tc of msg.tool_calls) {
+          const fn = tc.function;
+          const args = typeof fn.arguments === "string" ? JSON.parse(fn.arguments) : fn.arguments;
+
+          addBubble("system", `⚡ Calling tool: ${fn.name}`);
+          setStatus(`Calling ${fn.name}...`);
+
+          const result = await callMcpTool(fn.name, args);
+
+          addBubble("tool", `${fn.name} → ${result}`);
+
+          // Add tool result to history
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: result,
+          });
+        }
+        // Loop back to let the model process tool results
+        continue;
+      }
+
+      // No tool calls and we have content — done
+      break;
+    }
+
+    setStatus("Ready");
+  } catch (err) {
+    addBubble("system", `Error: ${err.message}`);
+    setStatus("Error — see chat");
+    console.error(err);
+  } finally {
+    setBusy(false);
+    promptEl.focus();
+  }
+}
+</script>
+</body>
+</html>

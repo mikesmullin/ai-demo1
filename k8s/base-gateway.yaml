@@ -1,0 +1,77 @@
+# Envoy AI Gateway — base resources
+# GatewayClass + Gateway + ClientTrafficPolicy + EnvoyProxy
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: ai-gw-lab
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ai-gw-lab
+  namespace: default
+spec:
+  gatewayClassName: ai-gw-lab
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: ai-gw-lab
+---
+# Raise the default 32KB buffer to 50MB for AI workloads
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: ai-gw-lab-buffer
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ai-gw-lab
+  connection:
+    bufferLimit: 50Mi
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: ai-gw-lab
+  namespace: default
+spec:
+  logging:
+    level:
+      default: debug
+  bootstrap:
+    type: Merge
+    value: |
+      admin:
+        address:
+          socket_address:
+            address: 0.0.0.0
+            port_value: 19000
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: NodePort
+        patch:
+          type: JSONMerge
+          value:
+            spec:
+              ports:
+                - name: http-80
+                  port: 80
+                  targetPort: 10080
+                  nodePort: 30080
+                  protocol: TCP
+      envoyDeployment:
+        container:
+          # Local lab — clear default resource requirements
+          resources: {}

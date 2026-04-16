@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-front1-py
+  labels:
+    app: chat-front1-py
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chat-front1-py
+  template:
+    metadata:
+      labels:
+        app: chat-front1-py
+    spec:
+      containers:
+        - name: chat-front1-py
+          image: localhost/chat-front1-py:latest
+          imagePullPolicy: Never
+          env:
+            - name: ENVOY_BASE_URL
+              value: "http://envoy-default-ai-gw-lab-82528b23.envoy-gateway-system.svc:80"
+            - name: ENVOY_MODEL
+              value: "gpt-5.1"
+            - name: USER_PROMPT
+              value: "What is the weather like in London, UK?"

@@ -1,0 +1,83 @@
+# Azure AI Foundry — AIGatewayRoute + AIServiceBackend + BackendSecurityPolicy
+# Uses OpenAI-compatible schema (bypasses AzureOpenAI ext_proc path rewrite)
+---
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIGatewayRoute
+metadata:
+  name: azure-ai-foundry
+  namespace: default
+spec:
+  parentRefs:
+    - name: ai-gw-lab
+      kind: Gateway
+      group: gateway.networking.k8s.io
+  rules:
+    - matches:
+        - headers:
+            - type: Exact
+              name: x-ai-eg-model
+              value: gpt-5.1
+      backendRefs:
+        - name: azure-ai-foundry
+---
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: AIServiceBackend
+metadata:
+  name: azure-ai-foundry
+  namespace: default
+spec:
+  schema:
+    name: OpenAI
+    prefix: /openai/v1
+  backendRef:
+    name: azure-ai-foundry
+    kind: Backend
+    group: gateway.envoyproxy.io
+---
+apiVersion: aigateway.envoyproxy.io/v1beta1
+kind: BackendSecurityPolicy
+metadata:
+  name: azure-ai-foundry-apikey
+  namespace: default
+spec:
+  targetRefs:
+    - group: aigateway.envoyproxy.io
+      kind: AIServiceBackend
+      name: azure-ai-foundry
+  type: APIKey
+  apiKey:
+    secretRef:
+      name: azure-ai-foundry-apikey
+      namespace: default
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: azure-ai-foundry
+  namespace: default
+spec:
+  endpoints:
+    - fqdn:
+        hostname: daemon-resource.services.ai.azure.com
+        port: 443
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: azure-ai-foundry-tls
+  namespace: default
+spec:
+  targetRefs:
+    - group: "gateway.envoyproxy.io"
+      kind: Backend
+      name: azure-ai-foundry
+  validation:
+    wellKnownCACertificates: "System"
+    hostname: daemon-resource.services.ai.azure.com
+# Secret is NOT stored in this file — see k8s/secrets/ (gitignored).
+# Create it with:
+#   kubectl create secret generic azure-ai-foundry-apikey \
+#     --from-literal=apiKey="<YOUR_AZURE_API_KEY>"
+#
+# Or copy k8s/secrets/azure-ai-foundry-apikey.yaml.example,
+# fill in your key, save as azure-ai-foundry-apikey.yaml, and apply.

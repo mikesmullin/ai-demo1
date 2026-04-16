@@ -1,0 +1,30 @@
+# EnvoyPatchPolicy — force HTTP/1.1 upstream + ALPN for the Azure cluster
+# Diagnotic test proved direct HTTP/1.1 works; force it through Envoy too
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyPatchPolicy
+metadata:
+  name: azure-force-alpn
+  namespace: default
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: ai-gw-lab
+  type: JSONPatch
+  jsonPatches:
+    # Add ALPN protocols to the TLS context
+    - type: "type.googleapis.com/envoy.config.cluster.v3.Cluster"
+      name: "httproute/default/azure-ai-foundry/rule/0"
+      operation:
+        op: add
+        path: "/transport_socket_matches/0/transport_socket/typed_config/common_tls_context/alpn_protocols"
+        value: ["http/1.1"]
+    # Replace auto_config with explicit HTTP/1.1
+    - type: "type.googleapis.com/envoy.config.cluster.v3.Cluster"
+      name: "httproute/default/azure-ai-foundry/rule/0"
+      operation:
+        op: replace
+        path: "/typed_extension_protocol_options/envoy.extensions.upstreams.http.v3.HttpProtocolOptions/auto_config"
+        value:
+          http_protocol_options: {}

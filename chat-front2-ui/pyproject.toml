@@ -1,0 +1,18 @@
+[project]
+name = "chat-front2-ui"
+version = "0.1.0"
+description = "Browser chat UI with server-side proxy to Envoy AI Gateway"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.135.3",
+    "httpx>=0.28.1",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "uvicorn>=0.43.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

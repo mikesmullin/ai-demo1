@@ -1,0 +1,21 @@
+[project]
+name = "chat-front1-py"
+version = "0.2.0"
+description = "Headless Pydantic AI agent — runs one inference+tool loop on startup"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "openai>=2.30.0",
+    "pydantic>=2.12.5",
+    "pydantic-ai-slim[openai,mcp]>=1.77.0",
+    "pydantic-settings>=2.13.1",
+]
+
+[dependency-groups]
+dev = [
+    "anyio>=4.13.0",
+    "httpx>=0.28.1",
+    "pytest>=9.0.2",
+    "pytest-anyio>=0.0.0",
+]
